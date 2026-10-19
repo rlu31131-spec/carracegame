@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Pursuit: 霓虹狂飆追逐戰</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background-color: #05050a;
+            color: #00f0ff;
+        }
+        .neon-text {
+            text-shadow: 0 0 10px #00f0ff, 0 0 20px #00f0ff;
+        }
+        .neon-glow {
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+        }
+        .neon-glow-pink {
+            box-shadow: 0 0 20px rgba(255, 0, 127, 0.6);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between p-4">
+
+    <!-- 頂部標題與計分板 -->
+    <header class="w-full max-w-md flex justify-between items-center py-3 border-b border-cyan-500/30">
+        <h1 class="text-xl font-black neon-text">CYBER PURSUIT</h1>
+        <div class="flex gap-4 text-sm font-bold">
+            <span class="text-pink-500">生存距離: <span id="scoreVal" class="text-white">0</span>m</span>
+        </div>
+    </header>
+
+    <!-- 遊戲主要畫布區 -->
+    <main class="relative my-4 border-2 border-cyan-500/50 neon-glow rounded-xl overflow-hidden bg-black">
+        <canvas id="gameCanvas" width="400" height="600" class="block"></canvas>
+
+        <!-- 開始與遊戲結束遮罩 -->
+        <div id="overlay" class="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+            <h2 id="overlayTitle" class="text-2xl font-black neon-text text-center">追逐戰啟動</h2>
+            <p id="overlayDesc" class="text-xs text-cyan-300 text-center px-6 leading-relaxed">
+                後方有警車追擊！<br>
+                使用 <span class="text-pink-500 font-bold">← / →</span> 或 <span class="text-pink-500 font-bold">A / D</span> 左右移動<br>
+                閃避障礙物，甩開警車！
+            </p>
+            <button id="startBtn" class="px-6 py-3 bg-cyan-500 text-black font-extrabold rounded-lg neon-glow hover:bg-cyan-400 transition transform hover:scale-105">
+                踩下油門 (START)
+            </button>
+        </div>
+    </main>
+
+    <!-- 頁尾說明 -->
+    <footer class="text-center text-xs text-gray-500 pb-2">
+        Cyber Pursuit &bull; Vibe Coding
+    </footer>
+
+    <!-- 遊戲核心邏輯 -->
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const scoreVal = document.getElementById('scoreVal');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlayTitle');
+        const overlayDesc = document.getElementById('overlayDesc');
+        const startBtn = document.getElementById('startBtn');
+
+        let gameRunning = false;
+        let score = 0;
+        let roadOffset = 0;
+
+        // 玩家車輛 (藍色)
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 120,
+            width: 36,
+            height: 64,
+            speed: 5,
+            color: '#00f0ff'
+        };
+
+        // 追擊警車 (紅色閃爍燈)
+        const police = {
+            x: canvas.width / 2,
+            y: canvas.height - 50,
+            width: 36,
+            height: 64,
+            color: '#ff0033'
+        };
+
+        let obstacles = [];
+        let keys = {};
+
+        window.addEventListener('keydown', (e) => keys[e.key] = true);
+        window.addEventListener('keyup', (e) => keys[e.key] = false);
+
+        function spawnObstacle() {
+            const x = 50 + Math.random() * (canvas.width - 100);
+            obstacles.push({
+                x: x,
+                y: -80,
+                width: 40,
+                height: 40,
+                color: '#ffe600'
+            });
+        }
+
+        function drawCar(x, y, w, h, color, isPolice = false) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(-w/2, -h/2, w, h);
+
+            // 輪胎
+            ctx.fillStyle = '#111';
+            ctx.shadowBlur = 0;
+            ctx.fillRect(-w/2 - 3, -h/2 + 8, 4, 12);
+            ctx.fillRect(w/2 - 1, -h/2 + 8, 4, 12);
+            ctx.fillRect(-w/2 - 3, h/2 - 20, 4, 12);
+            ctx.fillRect(w/2 - 1, h/2 - 20, 4, 12);
+
+            // 警車雙閃燈效果
+            if (isPolice) {
+                const flash = Math.floor(Date.now() / 150) % 2 === 0;
+                ctx.fillStyle = flash ? '#0055ff' : '#ff0033';
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.shadowBlur = 15;
+                ctx.fillRect(-6, -6, 12, 6);
+            }
+
+            ctx.restore();
+        }
+
+        function drawRoad() {
+            ctx.fillStyle = '#0a0a14';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 道路邊界
+            ctx.fillStyle = '#ff007f';
+            ctx.shadowColor = '#ff007f';
+            ctx.shadowBlur = 10;
+            ctx.fillRect(30, 0, 6, canvas.height);
+            ctx.fillRect(canvas.width - 36, 0, 6, canvas.height);
+            ctx.shadowBlur = 0;
+
+            // 中心虛線滾動
+            roadOffset = (roadOffset + 4) % 40;
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.3)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([20, 20]);
+            ctx.lineDashOffset = -roadOffset;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function checkCollision(r1, r2) {
+            return (
+                Math.abs(r1.x - r2.x) < (r1.width / 2 + r2.width / 2) - 6 &&
+                Math.abs(r1.y - r2.y) < (r1.height / 2 + r2.height / 2) - 6
+            );
+        }
+
+        let frameCount = 0;
+        function update() {
+            if (!gameRunning) return;
+
+            score++;
+            scoreVal.innerText = score;
+
+            // 玩家左右移動
+            if ((keys['ArrowLeft'] || keys['a'] || keys['A']) && player.x > 50) {
+                player.x -= player.speed;
+            }
+            if ((keys['ArrowRight'] || keys['d'] || keys['D']) && player.x < canvas.width - 50) {
+                player.x += player.speed;
+            }
+
+            // 警車稍微追隨玩家的 X 軸，增加壓迫感
+            police.x += (player.x - police.x) * 0.05;
+
+            drawRoad();
+
+            // 生成障礙物
+            frameCount++;
+            if (frameCount % 70 === 0) {
+                spawnObstacle();
+            }
+
+            // 更新障礙物
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.y += 4;
+
+                ctx.save();
+                ctx.translate(obs.x, obs.y);
+                ctx.fillStyle = obs.color;
+                ctx.shadowColor = obs.color;
+                ctx.shadowBlur = 10;
+                ctx.fillRect(-obs.width/2, -obs.height/2, obs.width, obs.height);
+                ctx.restore();
+
+                // 碰撞檢測 (撞障礙物)
+                if (checkCollision(player, obs)) {
+                    gameOver("撞擊障礙物！被警車逮捕！");
+                    return;
+                }
+
+                if (obs.y > canvas.height + 50) {
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 繪製玩家與警車
+            drawCar(player.x, player.y, player.width, player.height, player.color, false);
+            drawCar(police.x, police.y, police.width, police.height, police.color, true);
+
+            // 碰撞檢測 (被警車追上)
+            if (checkCollision(player, police)) {
+                gameOver("被後方警車追撞夾擊！");
+                return;
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function gameOver(reason) {
+            gameRunning = false;
+            overlayTitle.innerText = "遭到逮捕 (BUSTED)";
+            overlayDesc.innerHTML = `${reason}<br>生存距離：<span class="text-pink-500 font-bold">${score}m</span>`;
+            startBtn.innerText = "再次逃亡 (RETRY)";
+            overlay.classList.remove('hidden');
+        }
+
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            obstacles = [];
+            player.x = canvas.width / 2;
+            police.x = canvas.width / 2;
+            overlay.classList.add('hidden');
+            update();
+        }
+
+        startBtn.addEventListener('click', startGame);
+    </script>
+</body>
+</html>
